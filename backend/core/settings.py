@@ -90,6 +90,25 @@ USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "auth_app.authentication.CookieJWTAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+}
+
+JWT_SIGNING_KEY = os.getenv(
+    "JWT_SIGNING_KEY",
+    f"{SECRET_KEY}-quizly-jwt-signing-key",
+)
+SIMPLE_JWT = {
+    "SIGNING_KEY": JWT_SIGNING_KEY,
+}
+JWT_COOKIE_SECURE = not DEBUG
+JWT_COOKIE_SAMESITE = "Lax"
+
 CORS_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
