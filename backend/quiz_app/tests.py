@@ -1,5 +1,8 @@
 """Tests for Quizly quiz functionality."""
 
+from pathlib import Path
+from unittest.mock import patch
+
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -8,6 +11,12 @@ from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
 from quiz_app.models import Question, Quiz
+from quiz_app.services.transcription import transcribe_audio
+from quiz_app.services.youtube import (
+    canonical_youtube_url,
+    download_audio,
+    extract_video_id,
+)
 
 User = get_user_model()
 
@@ -185,3 +194,65 @@ class QuizApiTests(APITestCase):
         """Require authentication for quiz detail requests."""
         response = APIClient().get(self._detail_url(self.owned_quiz.id))
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class YouTubeServiceTests(TestCase):
+    """Cover YouTube URL normalization and audio extraction setup."""
+
+    def test_extracts_video_id_from_watch_url(self):
+        """Read the id from a regular YouTube watch URL."""
+        url = "https://www.youtube.com/watch?v=abcdefghijk"
+        self.assertEqual(extract_video_id(url), "abcdefghijk")
+
+    def test_extracts_video_id_from_short_url(self):
+        """Read the id from a youtu.be share URL."""
+        self.assertEqual(extract_video_id("https://youtu.be/abcdefghijk"), "abcdefghijk")
+
+    def test_rejects_non_youtube_url(self):
+        """Reject URLs outside supported YouTube hosts."""
+        with self.assertRaises(ValueError):
+            extract_video_id("https://example.com/watch?v=abcdefghijk")
+
+    def test_rejects_invalid_video_id(self):
+        """Reject malformed YouTube video identifiers."""
+        with self.assertRaises(ValueError):
+            extract_video_id("https://www.youtube.com/watch?v=short")
+
+    def test_builds_canonical_watch_url(self):
+        """Normalize supported links to the persisted watch URL."""
+        result = canonical_youtube_url("https://youtu.be/abcdefghijk?t=5")
+        self.assertEqual(result, "https://www.youtube.com/watch?v=abcdefghijk")
+
+    @patch("quiz_app.services.youtube.YoutubeDL")
+    def test_download_audio_uses_yt_dlp_and_ffmpeg(self, youtube_dl):
+        """Configure one best-audio download and FFmpeg extraction."""
+        downloader = youtube_dl.return_value.__enter__.return_value
+        with patch("quiz_app.services.youtube.Path.exists", return_value=True):
+            with download_audio("https://youtu.be/abcdefghijk") as audio_path:
+                self.assertEqual(audio_path.name, "audio.mp3")
+        options = youtube_dl.call_args.args[0]
+        self.assertEqual(options["format"], "bestaudio/best")
+        self.assertTrue(options["noplaylist"])
+        self.assertEqual(options["postprocessors"][0]["key"], "FFmpegExtractAudio")
+        downloader.download.assert_called_once_with(
+            ["https://www.youtube.com/watch?v=abcdefghijk"]
+        )
+
+
+class TranscriptionServiceTests(TestCase):
+    """Cover local Whisper transcription behavior without loading a model."""
+
+    @patch("quiz_app.services.transcription.get_whisper_model")
+    def test_transcribe_audio_returns_trimmed_text(self, get_model):
+        """Return plain transcript text from Whisper output."""
+        get_model.return_value.transcribe.return_value = {"text": "  Hello world.  "}
+        result = transcribe_audio(Path("audio.mp3"))
+        self.assertEqual(result, "Hello world.")
+        get_model.return_value.transcribe.assert_called_once_with("audio.mp3")
+
+    @patch("quiz_app.services.transcription.get_whisper_model")
+    def test_transcribe_audio_rejects_empty_text(self, get_model):
+        """Reject an empty Whisper result before quiz generation."""
+        get_model.return_value.transcribe.return_value = {"text": "   "}
+        with self.assertRaises(ValueError):
+            transcribe_audio("audio.mp3")
