@@ -5,3 +5,4 @@ djangorestframework-simplejwt>=5.3,<6.0
 python-dotenv>=1.0,<2.0
 yt-dlp>=2025.1
 openai-whisper>=20240930
+google-genai>=1.0,<2.0

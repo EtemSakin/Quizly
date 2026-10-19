@@ -1,16 +1,23 @@
 """Tests for Quizly quiz functionality."""
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
 from quiz_app.models import Question, Quiz
+from quiz_app.services.gemini import (
+    _parse_json_response,
+    generate_quiz_content,
+    validate_quiz_payload,
+)
+from quiz_app.services.generation import generate_quiz
 from quiz_app.services.transcription import transcribe_audio
 from quiz_app.services.youtube import (
     canonical_youtube_url,
@@ -256,3 +263,172 @@ class TranscriptionServiceTests(TestCase):
         get_model.return_value.transcribe.return_value = {"text": "   "}
         with self.assertRaises(ValueError):
             transcribe_audio("audio.mp3")
+
+
+def sample_generated_quiz():
+    """Return a complete deterministic response for generation tests."""
+    return {
+        "title": "Video Learning Quiz",
+        "description": "Ten questions about the video.",
+        "questions": [
+            {"question_title": f"What is topic {number}?",
+             "question_options": ["One", "Two", "Three", "Four"],
+             "answer": "Two"}
+            for number in range(1, 11)
+        ],
+    }
+
+
+class GeminiValidationTests(TestCase):
+    """Reject incomplete or malformed generated quiz content."""
+
+    def test_accepts_exactly_ten_valid_questions(self):
+        """Allow a complete quiz with ten different question titles."""
+        result = validate_quiz_payload(sample_generated_quiz())
+        self.assertEqual(len(result["questions"]), 10)
+
+    def test_rejects_missing_questions(self):
+        """Require exactly ten questions in generated responses."""
+        payload = sample_generated_quiz()
+        payload["questions"].pop()
+        with self.assertRaises(ValueError):
+            validate_quiz_payload(payload)
+
+    def test_rejects_duplicate_questions(self):
+        """Reject questions that repeat another question's title."""
+        payload = sample_generated_quiz()
+        payload["questions"][1]["question_title"] = "WHAT IS TOPIC 1?"
+        with self.assertRaises(ValueError):
+            validate_quiz_payload(payload)
+
+    def test_rejects_duplicate_options(self):
+        """Reject repeated multiple-choice options ignoring case."""
+        payload = sample_generated_quiz()
+        payload["questions"][0]["question_options"][1] = "one"
+        with self.assertRaises(ValueError):
+            validate_quiz_payload(payload)
+
+    def test_rejects_non_matching_correct_answer(self):
+        """Require the correct answer to equal one of the options."""
+        payload = sample_generated_quiz()
+        payload["questions"][0]["answer"] = "Not in options"
+        with self.assertRaises(ValueError):
+            validate_quiz_payload(payload)
+
+    def test_rejects_non_list_options(self):
+        """Reject malformed option types and question structures."""
+        payload = sample_generated_quiz()
+        payload["questions"][0]["question_options"] = "One, Two, Three, Four"
+        with self.assertRaises(ValueError):
+            validate_quiz_payload(payload)
+
+    def test_rejects_empty_title(self):
+        """Require a valid and non-blank quiz title."""
+        payload = sample_generated_quiz()
+        payload["title"] = " "
+        with self.assertRaises(ValueError):
+            validate_quiz_payload(payload)
+
+    def test_parses_json_inside_markdown_fence(self):
+        """Handle occasional fenced JSON despite JSON response mode."""
+        raw = '```json\n{"title": "Example"}\n```'
+        self.assertEqual(_parse_json_response(raw), {"title": "Example"})
+
+    def test_rejects_unparseable_json(self):
+        """Reject syntactically invalid Gemini responses."""
+        with self.assertRaises(ValueError):
+            _parse_json_response("{not-json}")
+
+    @override_settings(GEMINI_API_KEY="")
+    def test_requires_gemini_api_key(self):
+        """Fail clearly when the API key has not been configured."""
+        with self.assertRaises(RuntimeError):
+            generate_quiz_content("Transcript content.")
+
+    @override_settings(GEMINI_API_KEY="fake-key", GEMINI_MODEL="gemini-2.5-flash")
+    @patch("quiz_app.services.gemini.genai.Client")
+    def test_calls_gemini_with_json_response_mode(self, client):
+        """Use the configured Gemini model and JSON output format."""
+        invoke = client.return_value.__enter__.return_value.models.generate_content
+        invoke.return_value.text = json.dumps(sample_generated_quiz())
+        result = generate_quiz_content("A useful spoken lesson.")
+        self.assertEqual(len(result["questions"]), 10)
+        self.assertEqual(invoke.call_args.kwargs["model"], "gemini-2.5-flash")
+        self.assertEqual(
+            invoke.call_args.kwargs["config"]["response_mime_type"], "application/json"
+        )
+
+
+class QuizCreationTests(APITestCase):
+    """Cover complete quiz creation without calling external services."""
+
+    @classmethod
+    def setUpTestData(cls):
+        """Create the user who owns any newly generated quiz."""
+        cls.user = User.objects.create_user("creator-api", password="Strong1")
+
+    def setUp(self):
+        """Authenticate requests to the quiz creation endpoint."""
+        self.client.force_authenticate(user=self.user)
+
+    @patch("quiz_app.services.generation.generate_quiz_content")
+    @patch("quiz_app.services.generation._transcribe_video")
+    def test_creates_complete_owned_quiz(self, transcription, content):
+        """Persist ten generated questions and normalize the video URL."""
+        transcription.return_value = "This is the transcript."
+        content.return_value = sample_generated_quiz()
+        response = self.client.post(reverse("quiz-list"), {"url": "https://youtu.be/abcdefghijk"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(response.data["questions"]), 10)
+        self.assertEqual(Quiz.objects.get(pk=response.data["id"]).user, self.user)
+        self.assertEqual(Question.objects.count(), 10)
+        self.assertEqual(
+            response.data["video_url"], "https://www.youtube.com/watch?v=abcdefghijk"
+        )
+
+    def test_rejects_invalid_video_url(self):
+        """Return 400 rather than downloading from an unrelated host."""
+        response = self.client.post(reverse("quiz-list"), {"url": "https://example.com/"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Quiz.objects.exists())
+
+    def test_requires_video_url(self):
+        """Return 400 when the request has no URL field."""
+        response = self.client.post(reverse("quiz-list"), {})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_requires_authentication(self):
+        """Return 401 before any expensive external processing."""
+        response = APIClient().post(reverse("quiz-list"), {"url": "https://youtu.be/abcdefghijk"})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch("quiz_app.api.views.logger")
+    @patch("quiz_app.services.generation._transcribe_video")
+    def test_transcription_failure_returns_500(self, transcription, unused_logger):
+        """Keep the database empty if audio processing fails."""
+        transcription.side_effect = RuntimeError("Audio processing failed.")
+        response = self.client.post(reverse("quiz-list"), {"url": "https://youtu.be/abcdefghijk"})
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertFalse(Quiz.objects.exists())
+
+    @patch("quiz_app.api.views.logger")
+    @patch("quiz_app.services.generation.generate_quiz_content")
+    @patch("quiz_app.services.generation._transcribe_video")
+    def test_invalid_gemini_payload_returns_500(self, transcription, content, unused_logger):
+        """Reject invalid generated quizzes without leaving partial data."""
+        transcription.return_value = "Some words."
+        content.return_value = {"questions": []}
+        response = self.client.post(reverse("quiz-list"), {"url": "https://youtu.be/abcdefghijk"})
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertFalse(Quiz.objects.exists())
+
+    @patch("quiz_app.services.generation.generate_quiz_content")
+    @patch("quiz_app.services.generation._transcribe_video")
+    def test_question_insert_error_rolls_back_quiz(self, transcription, content):
+        """Rollback the quiz if any question cannot be persisted."""
+        transcription.return_value = "Some words."
+        content.return_value = sample_generated_quiz()
+        with patch("quiz_app.services.generation.Question.objects.bulk_create", side_effect=RuntimeError):
+            with self.assertRaises(RuntimeError):
+                generate_quiz(self.user, "https://youtu.be/abcdefghijk")
+        self.assertFalse(Quiz.objects.exists())

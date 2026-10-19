@@ -4,7 +4,7 @@ from django.urls import path
 
 from quiz_app.api.views import QuizViewSet
 
-quiz_list = QuizViewSet.as_view({"get": "list"})
+quiz_list = QuizViewSet.as_view({"get": "list", "post": "create"})
 quiz_detail = QuizViewSet.as_view(
     {"get": "retrieve", "patch": "partial_update", "delete": "destroy"}
 )
