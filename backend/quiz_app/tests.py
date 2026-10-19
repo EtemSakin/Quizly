@@ -345,7 +345,7 @@ class GeminiValidationTests(TestCase):
         with self.assertRaises(RuntimeError):
             generate_quiz_content("Transcript content.")
 
-    @override_settings(GEMINI_API_KEY="fake-key", GEMINI_MODEL="gemini-2.5-flash")
+    @override_settings(GEMINI_API_KEY="fake-key", GEMINI_MODEL="gemini-3.8-flash")
     @patch("quiz_app.services.gemini.genai.Client")
     def test_calls_gemini_with_json_response_mode(self, client):
         """Use the configured Gemini model and JSON output format."""
@@ -353,10 +353,11 @@ class GeminiValidationTests(TestCase):
         invoke.return_value.text = json.dumps(sample_generated_quiz())
         result = generate_quiz_content("A useful spoken lesson.")
         self.assertEqual(len(result["questions"]), 10)
-        self.assertEqual(invoke.call_args.kwargs["model"], "gemini-2.5-flash")
+        self.assertEqual(invoke.call_args.kwargs["model"], "gemini-3.8-flash")
         self.assertEqual(
             invoke.call_args.kwargs["config"]["response_mime_type"], "application/json"
         )
+        self.assertNotIn("temperature", invoke.call_args.kwargs["config"])
 
 
 class QuizCreationTests(APITestCase):

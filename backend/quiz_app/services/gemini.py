@@ -85,6 +85,6 @@ def generate_quiz_content(transcript):
         response = client.models.generate_content(
             model=settings.GEMINI_MODEL,
             contents=_generation_prompt(source),
-            config={"response_mime_type": "application/json", "temperature": 0.2},
+            config={"response_mime_type": "application/json"},
         )
     return validate_quiz_payload(_parse_json_response(response.text))
