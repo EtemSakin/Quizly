@@ -245,6 +245,26 @@ class YouTubeServiceTests(TestCase):
             ["https://www.youtube.com/watch?v=abcdefghijk"]
         )
 
+    @override_settings(FFMPEG_LOCATION=r"C:\tools\ffmpeg\bin")
+    @patch("quiz_app.services.youtube.YoutubeDL")
+    def test_download_audio_uses_configured_ffmpeg_location(self, youtube_dl):
+        """Pass an explicit FFmpeg directory to the yt-dlp downloader."""
+        with patch("quiz_app.services.youtube.Path.exists", return_value=True):
+            with download_audio("https://youtu.be/abcdefghijk"):
+                pass
+        options = youtube_dl.call_args.args[0]
+        self.assertEqual(options["ffmpeg_location"], r"C:\tools\ffmpeg\bin")
+
+    @override_settings(FFMPEG_LOCATION="")
+    @patch("quiz_app.services.youtube.YoutubeDL")
+    def test_download_audio_auto_detects_ffmpeg_by_default(self, youtube_dl):
+        """Allow yt-dlp to find FFmpeg when no directory is configured."""
+        with patch("quiz_app.services.youtube.Path.exists", return_value=True):
+            with download_audio("https://youtu.be/abcdefghijk"):
+                pass
+        options = youtube_dl.call_args.args[0]
+        self.assertNotIn("ffmpeg_location", options)
+
 
 class TranscriptionServiceTests(TestCase):
     """Cover local Whisper transcription behavior without loading a model."""

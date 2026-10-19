@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import parse_qs, urlparse
 
+from django.conf import settings
 from yt_dlp import YoutubeDL
 
 VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -45,7 +46,7 @@ def canonical_youtube_url(url):
 
 def _download_options(output_template):
     """Build yt-dlp options for extracting one audio track."""
-    return {
+    options = {
         "format": "bestaudio/best",
         "outtmpl": output_template,
         "quiet": True,
@@ -54,6 +55,9 @@ def _download_options(output_template):
             {"key": "FFmpegExtractAudio", "preferredcodec": "mp3"},
         ],
     }
+    if settings.FFMPEG_LOCATION:
+        options["ffmpeg_location"] = settings.FFMPEG_LOCATION
+    return options
 
 
 @contextmanager
