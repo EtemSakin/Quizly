@@ -18,7 +18,7 @@ from quiz_app.services.gemini import (
     validate_quiz_payload,
 )
 from quiz_app.services.generation import generate_quiz
-from quiz_app.services.transcription import transcribe_audio
+from quiz_app.services.transcription import get_whisper_model, transcribe_audio
 from quiz_app.services.youtube import (
     canonical_youtube_url,
     download_audio,
@@ -268,6 +268,15 @@ class YouTubeServiceTests(TestCase):
 
 class TranscriptionServiceTests(TestCase):
     """Cover local Whisper transcription behavior without loading a model."""
+
+    @patch("quiz_app.services.transcription._whisper_model", None)
+    @patch("quiz_app.services.transcription.whisper.load_model")
+    def test_loads_whisper_model_once_and_reuses_it(self, load_model):
+        """Load Whisper once and reuse the cached model."""
+        first = get_whisper_model()
+        second = get_whisper_model()
+        self.assertIs(first, second)
+        load_model.assert_called_once_with("base")
 
     @patch("quiz_app.services.transcription.get_whisper_model")
     def test_transcribe_audio_returns_trimmed_text(self, get_model):
