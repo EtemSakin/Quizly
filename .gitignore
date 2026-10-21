@@ -34,3 +34,6 @@ tmp/
 temp/
 *.tmp
 *.log
+
+# Official frontend cloned separately for local integration testing
+frontend/
