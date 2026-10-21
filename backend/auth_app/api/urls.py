@@ -2,7 +2,12 @@
 
 from django.urls import path
 
-from auth_app.api.views import LoginView, LogoutView, RegisterView, TokenRefreshView
+from auth_app.api.views import (
+    LoginView,
+    LogoutView,
+    RegisterView,
+    TokenRefreshView,
+)
 
 urlpatterns = [
     path("register/", RegisterView.as_view(), name="register"),

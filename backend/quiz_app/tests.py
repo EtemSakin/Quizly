@@ -26,6 +26,7 @@ from quiz_app.services.youtube import (
 )
 
 User = get_user_model()
+TEST_YOUTUBE_URL = "https://youtu.be/abcdefghijk"
 
 
 class QuizModelTests(TestCase):
@@ -140,7 +141,9 @@ class QuizApiTests(APITestCase):
         response = self.client.get(self._detail_url(self.owned_quiz.id))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["id"], self.owned_quiz.id)
-        self.assertEqual(response.data["questions"][0]["question_title"], "Question?")
+        self.assertEqual(
+            response.data["questions"][0]["question_title"], "Question?"
+        )
 
     def test_detail_foreign_quiz_returns_403(self):
         """Distinguish an existing foreign quiz from a missing quiz."""
@@ -155,7 +158,9 @@ class QuizApiTests(APITestCase):
     def test_patch_updates_title_and_description(self):
         """Allow partial updates of the two editable quiz fields."""
         payload = {"title": "Updated", "description": "New description."}
-        response = self.client.patch(self._detail_url(self.owned_quiz.id), payload)
+        response = self.client.patch(
+            self._detail_url(self.owned_quiz.id), payload
+        )
         self.owned_quiz.refresh_from_db()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self.owned_quiz.title, "Updated")
@@ -165,7 +170,9 @@ class QuizApiTests(APITestCase):
         """Ignore attempts to replace protected quiz data."""
         original_url = self.owned_quiz.video_url
         payload = {"video_url": "https://example.com/video", "questions": []}
-        response = self.client.patch(self._detail_url(self.owned_quiz.id), payload)
+        response = self.client.patch(
+            self._detail_url(self.owned_quiz.id), payload
+        )
         self.owned_quiz.refresh_from_db()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self.owned_quiz.video_url, original_url)
@@ -213,7 +220,9 @@ class YouTubeServiceTests(TestCase):
 
     def test_extracts_video_id_from_short_url(self):
         """Read the id from a youtu.be share URL."""
-        self.assertEqual(extract_video_id("https://youtu.be/abcdefghijk"), "abcdefghijk")
+        self.assertEqual(
+            extract_video_id("https://youtu.be/abcdefghijk"), "abcdefghijk"
+        )
 
     def test_rejects_non_youtube_url(self):
         """Reject URLs outside supported YouTube hosts."""
@@ -240,7 +249,8 @@ class YouTubeServiceTests(TestCase):
         options = youtube_dl.call_args.args[0]
         self.assertEqual(options["format"], "bestaudio/best")
         self.assertTrue(options["noplaylist"])
-        self.assertEqual(options["postprocessors"][0]["key"], "FFmpegExtractAudio")
+        postprocessor = options["postprocessors"][0]
+        self.assertEqual(postprocessor["key"], "FFmpegExtractAudio")
         downloader.download.assert_called_once_with(
             ["https://www.youtube.com/watch?v=abcdefghijk"]
         )
@@ -281,7 +291,9 @@ class TranscriptionServiceTests(TestCase):
     @patch("quiz_app.services.transcription.get_whisper_model")
     def test_transcribe_audio_returns_trimmed_text(self, get_model):
         """Return plain transcript text from Whisper output."""
-        get_model.return_value.transcribe.return_value = {"text": "  Hello world.  "}
+        get_model.return_value.transcribe.return_value = {
+            "text": "  Hello world.  "
+        }
         result = transcribe_audio(Path("audio.mp3"))
         self.assertEqual(result, "Hello world.")
         get_model.return_value.transcribe.assert_called_once_with("audio.mp3")
@@ -374,17 +386,21 @@ class GeminiValidationTests(TestCase):
         with self.assertRaises(RuntimeError):
             generate_quiz_content("Transcript content.")
 
-    @override_settings(GEMINI_API_KEY="fake-key", GEMINI_MODEL="gemini-3.8-flash")
+    @override_settings(
+        GEMINI_API_KEY="fake-key", GEMINI_MODEL="gemini-3.8-flash"
+    )
     @patch("quiz_app.services.gemini.genai.Client")
     def test_calls_gemini_with_json_response_mode(self, client):
         """Use the configured Gemini model and JSON output format."""
-        invoke = client.return_value.__enter__.return_value.models.generate_content
+        session = client.return_value.__enter__.return_value
+        invoke = session.models.generate_content
         invoke.return_value.text = json.dumps(sample_generated_quiz())
         result = generate_quiz_content("A useful spoken lesson.")
         self.assertEqual(len(result["questions"]), 10)
         self.assertEqual(invoke.call_args.kwargs["model"], "gemini-3.8-flash")
         self.assertEqual(
-            invoke.call_args.kwargs["config"]["response_mime_type"], "application/json"
+            invoke.call_args.kwargs["config"]["response_mime_type"],
+            "application/json",
         )
         self.assertNotIn("temperature", invoke.call_args.kwargs["config"])
 
@@ -407,18 +423,22 @@ class QuizCreationTests(APITestCase):
         """Persist ten generated questions and normalize the video URL."""
         transcription.return_value = "This is the transcript."
         content.return_value = sample_generated_quiz()
-        response = self.client.post(reverse("quiz-list"), {"url": "https://youtu.be/abcdefghijk"})
+        payload = {"url": TEST_YOUTUBE_URL}
+        response = self.client.post(reverse("quiz-list"), payload)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(len(response.data["questions"]), 10)
-        self.assertEqual(Quiz.objects.get(pk=response.data["id"]).user, self.user)
-        self.assertEqual(Question.objects.count(), 10)
         self.assertEqual(
-            response.data["video_url"], "https://www.youtube.com/watch?v=abcdefghijk"
+            Quiz.objects.get(pk=response.data["id"]).user, self.user
         )
+        self.assertEqual(Question.objects.count(), 10)
+        expected_url = "https://www.youtube.com/watch?v=abcdefghijk"
+        self.assertEqual(response.data["video_url"], expected_url)
 
     def test_rejects_invalid_video_url(self):
         """Return 400 rather than downloading from an unrelated host."""
-        response = self.client.post(reverse("quiz-list"), {"url": "https://example.com/"})
+        response = self.client.post(
+            reverse("quiz-list"), {"url": "https://example.com/"}
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(Quiz.objects.exists())
 
@@ -429,36 +449,55 @@ class QuizCreationTests(APITestCase):
 
     def test_requires_authentication(self):
         """Return 401 before any expensive external processing."""
-        response = APIClient().post(reverse("quiz-list"), {"url": "https://youtu.be/abcdefghijk"})
+        response = APIClient().post(
+            reverse("quiz-list"), {"url": TEST_YOUTUBE_URL}
+        )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("quiz_app.api.views.logger")
     @patch("quiz_app.services.generation._transcribe_video")
-    def test_transcription_failure_returns_500(self, transcription, unused_logger):
+    def test_transcription_failure_returns_500(
+        self, transcription, unused_logger
+    ):
         """Keep the database empty if audio processing fails."""
         transcription.side_effect = RuntimeError("Audio processing failed.")
-        response = self.client.post(reverse("quiz-list"), {"url": "https://youtu.be/abcdefghijk"})
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        response = self.client.post(
+            reverse("quiz-list"), {"url": TEST_YOUTUBE_URL}
+        )
+        self.assertEqual(
+            response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
         self.assertFalse(Quiz.objects.exists())
 
     @patch("quiz_app.api.views.logger")
     @patch("quiz_app.services.generation.generate_quiz_content")
     @patch("quiz_app.services.generation._transcribe_video")
-    def test_invalid_gemini_payload_returns_500(self, transcription, content, unused_logger):
+    def test_invalid_gemini_payload_returns_500(
+        self, transcription, content, unused_logger
+    ):
         """Reject invalid generated quizzes without leaving partial data."""
         transcription.return_value = "Some words."
         content.return_value = {"questions": []}
-        response = self.client.post(reverse("quiz-list"), {"url": "https://youtu.be/abcdefghijk"})
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        response = self.client.post(
+            reverse("quiz-list"), {"url": TEST_YOUTUBE_URL}
+        )
+        self.assertEqual(
+            response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
         self.assertFalse(Quiz.objects.exists())
 
     @patch("quiz_app.services.generation.generate_quiz_content")
     @patch("quiz_app.services.generation._transcribe_video")
-    def test_question_insert_error_rolls_back_quiz(self, transcription, content):
+    def test_question_insert_error_rolls_back_quiz(
+        self, transcription, content
+    ):
         """Rollback the quiz if any question cannot be persisted."""
         transcription.return_value = "Some words."
         content.return_value = sample_generated_quiz()
-        with patch("quiz_app.services.generation.Question.objects.bulk_create", side_effect=RuntimeError):
+        with patch(
+            "quiz_app.services.generation.Question.objects.bulk_create",
+            side_effect=RuntimeError,
+        ):
             with self.assertRaises(RuntimeError):
                 generate_quiz(self.user, "https://youtu.be/abcdefghijk")
         self.assertFalse(Quiz.objects.exists())

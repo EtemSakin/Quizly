@@ -23,8 +23,10 @@ class QuizViewSet(ModelViewSet):
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
-        """Limit lists to the owner while preserving 403 for foreign details."""
-        queryset = Quiz.objects.select_related("user").prefetch_related("questions")
+        """Return owner-only lists and preserve 403 for foreign details."""
+        queryset = (
+            Quiz.objects.select_related("user").prefetch_related("questions")
+        )
         if self.action == "list":
             return queryset.filter(user=self.request.user)
         return queryset
@@ -40,8 +42,12 @@ class QuizViewSet(ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            quiz = generate_quiz(request.user, serializer.validated_data["url"])
+            quiz = generate_quiz(
+                request.user, serializer.validated_data["url"]
+            )
         except Exception:
             logger.exception("Quiz generation failed.")
             return Response({"detail": "Quiz generation failed."}, status=500)
-        return Response(QuizSerializer(quiz).data, status=status.HTTP_201_CREATED)
+        return Response(
+            QuizSerializer(quiz).data, status=status.HTTP_201_CREATED
+        )

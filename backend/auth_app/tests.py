@@ -30,7 +30,9 @@ class RegistrationTests(APITestCase):
         response = self.client.post(self.url, self.payload, format="json")
         user = User.objects.get(username="newuser")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data, {"detail": "User created successfully!"})
+        self.assertEqual(
+            response.data, {"detail": "User created successfully!"}
+        )
         self.assertTrue(user.check_password("Strong1"))
 
     def test_registration_rejects_password_mismatch(self):
@@ -66,7 +68,9 @@ class AuthenticationTests(APITestCase):
 
     def _login(self):
         """Log in with the valid test credentials."""
-        return self.client.post(reverse("login"), self.credentials, format="json")
+        return self.client.post(
+            reverse("login"), self.credentials, format="json"
+        )
 
     def test_login_sets_http_only_cookies(self):
         """Set both JWT cookies and return the documented user data."""
@@ -82,12 +86,16 @@ class AuthenticationTests(APITestCase):
         self.credentials["password"] = "Wrong1"
         response = self._login()
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.data["detail"], "Invalid username or password.")
+        self.assertEqual(
+            response.data["detail"], "Invalid username or password."
+        )
 
     def test_refresh_sets_new_access_cookie(self):
         """Use the refresh cookie to issue an access cookie."""
         self._login()
-        response = self.client.post(reverse("token-refresh"), {}, format="json")
+        response = self.client.post(
+            reverse("token-refresh"), {}, format="json"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn(ACCESS_COOKIE, response.cookies)
         self.assertEqual(response.data, {"detail": "Token refreshed"})
@@ -105,7 +113,9 @@ class AuthenticationTests(APITestCase):
         jti = RefreshToken(refresh_value)["jti"]
         response = self.client.post(reverse("logout"), {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(BlacklistedToken.objects.filter(token__jti=jti).exists())
+        self.assertTrue(
+            BlacklistedToken.objects.filter(token__jti=jti).exists()
+        )
         self.assertEqual(response.cookies[ACCESS_COOKIE].value, "")
         self.assertEqual(response.cookies[REFRESH_COOKIE].value, "")
 

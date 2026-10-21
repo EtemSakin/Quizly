@@ -169,7 +169,7 @@ python backend\manage.py check
 python backend\manage.py test auth_app quiz_app
 ```
 
-**Last local verification:** 55 tests passed, with no Django system-check issues. Tests cover authentication, JWT cookies, ownership rules, CRUD operations, URL validation, and quiz-processing components. External integrations are mocked in automated tests; the complete YouTube → Whisper → Gemini → browser quiz flow has also been tested manually.
+**Last local verification:** 56 tests passed, with no Django system-check issues. Tests cover authentication, JWT cookies, ownership rules, CRUD operations, URL validation, and quiz-processing components. External integrations are mocked in automated tests; the complete YouTube → Whisper → Gemini → browser quiz flow has also been tested manually.
 
 ## Notes
 

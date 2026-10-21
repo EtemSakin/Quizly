@@ -38,7 +38,10 @@ def _set_cookie(response, name, value, lifetime):
 def set_auth_cookies(response, user):
     """Set fresh access and refresh cookies on a response."""
     access_token, refresh_token = create_token_pair(user)
-    _set_cookie(response, ACCESS_COOKIE, access_token, api_settings.ACCESS_TOKEN_LIFETIME)
+    _set_cookie(
+        response, ACCESS_COOKIE, access_token,
+        api_settings.ACCESS_TOKEN_LIFETIME,
+    )
     _set_cookie(
         response,
         REFRESH_COOKIE,

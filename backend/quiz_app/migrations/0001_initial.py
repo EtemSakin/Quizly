@@ -18,7 +18,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Quiz",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("title", models.CharField(max_length=255)),
                 ("description", models.TextField()),
                 ("video_url", models.URLField(max_length=500)),
@@ -37,7 +45,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Question",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("question_title", models.TextField()),
                 ("question_options", models.JSONField(default=list)),
                 ("answer", models.CharField(max_length=500)),
