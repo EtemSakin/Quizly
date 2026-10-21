@@ -154,7 +154,7 @@ Registration expects `username`, `email`, `password`, and `confirmed_password`. 
 
 ```json
 {
-  "url": "https://www.youtube.com/watch?v=BT5q46Es6e8"
+  "url": "<YouTube-Video-URL>"
 }
 ```
 
